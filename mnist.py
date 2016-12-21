@@ -4,10 +4,11 @@ https://raw.githubusercontent.com/Lasagne/Lasagne/master/examples/mnist.py
 
 Usage example employing Lasagne for digit recognition using the MNIST dataset.
 '''
-from __future__ import print_function
+# from lasagne.regularization import regularize_network_params, l2
 from collections import OrderedDict
 import theano.tensor as T
 import numpy as np
+import argparse
 import lasagne
 import theano
 import time
@@ -82,7 +83,7 @@ class NormalisedGeometricMeanLayer(lasagne.layers.ElemwiseMergeLayer):
         return geo_mean / Z
 
 
-def build_cnn(input_var=None, num_modules=4):
+def build_cnn(input_var=None, num_modules=8):
     # As a third model, we'll create a CNN of two convolution + pooling stages
     # and a fully-connected hidden layer in front of the output layer.
 
@@ -122,12 +123,18 @@ def build_cnn(input_var=None, num_modules=4):
     for i in range(1, num_modules + 1):
         network['fc1_{}'.format(i)] = lasagne.layers.DenseLayer(
             network['pool2'],
+            num_units=512 // num_modules,
+            nonlinearity=lasagne.nonlinearities.rectify
+        )
+
+        network['fc2_{}'.format(i)] = lasagne.layers.DenseLayer(
+            network['fc1_{}'.format(i)],
             num_units=256 // num_modules,
             nonlinearity=lasagne.nonlinearities.rectify
         )
 
         network['prob_{}'.format(i)] = lasagne.layers.DenseLayer(
-                network['fc1_{}'.format(i)],
+                network['fc2_{}'.format(i)],
                 num_units=10,
                 nonlinearity=lasagne.nonlinearities.softmax
         )
@@ -170,7 +177,8 @@ def iterate_minibatches(inputs, targets, batchsize, shuffle=False):
 # more functions to better separate the code, but it wouldn't make it any
 # easier to read.
 
-def main(num_epochs=75):
+def main(args):
+    num_epochs = args.n_epochs
     # Load the dataset
     print("Loading data...")
     X_train, y_train, X_val, y_val, X_test, y_test = load_dataset()
@@ -181,7 +189,7 @@ def main(num_epochs=75):
 
     # Create neural network model (depending on first command line parameter)
     print("Building model and compiling functions...")
-    network = build_cnn(input_var)
+    network = build_cnn(input_var, args.n_modules)
 
     # Create a loss expression for training, i.e., a scalar objective we want
     # to minimize (for our multi-class problem, it is the cross-entropy loss):
@@ -207,6 +215,9 @@ def main(num_epochs=75):
         test_prediction,
         target_var
     )
+    # test_loss = test_loss + regularize_network_params(
+    #     network['prob'], l2
+    # ) * 0.0005
     test_loss = test_loss.mean()
     # As a bonus, also create an expression for the classification accuracy:
     test_acc = T.mean(
@@ -272,7 +283,7 @@ def main(num_epochs=75):
 
     # Optionally, you could now dump the network weights to a file like this:
     np.savez(
-        'model.npz',
+        '{}_modules_{}_epochs.npz'.format(args.n_modules, args.n_epochs),
         *lasagne.layers.get_all_param_values(network['prob'])
     )
     #
@@ -282,21 +293,23 @@ def main(num_epochs=75):
     # lasagne.layers.set_all_param_values(network, param_values)
 
 
+def build_parser():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '--n-epochs',
+        type=int,
+        default=500
+    )
+
+    parser.add_argument(
+        '--n-modules',
+        type=int,
+        default=4
+    )
+
+    return parser
+
 if __name__ == '__main__':
-    if ('--help' in sys.argv) or ('-h' in sys.argv):
-        print("Trains a neural network on MNIST using Lasagne.")
-        print("Usage: %s [MODEL [EPOCHS]]" % sys.argv[0])
-        print()
-        print("MODEL: 'mlp' for a simple Multi-Layer Perceptron (MLP),")
-        print("       'custom_mlp:DEPTH,WIDTH,DROP_IN,DROP_HID' for an MLP")
-        print("       with DEPTH hidden layers of WIDTH units, DROP_IN")
-        print("       input dropout and DROP_HID hidden dropout,")
-        print("       'cnn' for a simple Convolutional Neural Network (CNN).")
-        print("EPOCHS: number of training epochs to perform (default: 500)")
-    else:
-        kwargs = {}
-        if len(sys.argv) > 1:
-            kwargs['model'] = sys.argv[1]
-        if len(sys.argv) > 2:
-            kwargs['num_epochs'] = int(sys.argv[2])
-        main(**kwargs)
+    args = build_parser().parse_args()
+    main(args)
